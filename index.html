@@ -175,12 +175,12 @@
     <div class="card" id="scanIdle">
       <div class="empty">
         <div class="big">📷</div>
-        Photograph the OT list screen.<br>Patient details are extracted automatically by AI.
+        Photograph the OT list screen.<br>Patient details are extracted automatically by AI.<br><span style="font-size:12px">Tip: you can select several photos at once from the library.</span>
       </div>
       <button class="btn" onclick="document.getElementById('camInput').click()">📷 Take Photo</button>
       <button class="btn secondary" onclick="document.getElementById('libInput').click()">🖼 Choose from Library</button>
       <input type="file" id="camInput" accept="image/*" capture="environment" hidden onchange="onPhoto(this)">
-      <input type="file" id="libInput" accept="image/*" hidden onchange="onPhoto(this)">
+      <input type="file" id="libInput" accept="image/*" multiple hidden onchange="onPhoto(this)">
     </div>
 
     <div class="card" id="scanWorking" style="display:none">
@@ -195,8 +195,7 @@
           <b id="foundCount">0 cases found</b>
           <span class="pill" id="engineUsed">Claude AI</span>
         </div>
-        <label class="f">Surgery date (from list header — adjust if wrong)</label>
-        <input type="date" id="batchDate">
+        <div class="hint">Check each case, set O / A / P, untick cases that aren't yours. Each photo has its own date.</div>
       </div>
       <div id="reviewCards"></div>
       <button class="btn green" onclick="saveExtracted()">💾 Save All to Logbook</button>
@@ -278,8 +277,7 @@ let entries = [];          // {date:"d/m/yyyy", name, rn, diagnosis, procedure, 
 let storageOK = false;
 let renderLimit = 150;
 let editIdx = -1, editOAP = "";
-let extracted = [];        // review cases
-let lastImageB64 = null;
+let groups = [];           // review groups, one per photo
 let engineLabel = "";
 
 const $ = id => document.getElementById(id);
@@ -455,53 +453,76 @@ async function deleteEntry(){
 
 /* ================= SCAN & EXTRACT ================= */
 function onPhoto(input){
-  const file = input.files && input.files[0];
+  const files = Array.from(input.files || []);
   input.value = "";
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const img = new Image();
-    img.onload = () => {
-      // Downscale to max 1600px for API cost/speed
-      const maxDim = 1600;
-      let w = img.width, h = img.height;
-      if (Math.max(w,h) > maxDim){
-        const sc = maxDim / Math.max(w,h);
-        w = Math.round(w*sc); h = Math.round(h*sc);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = w; canvas.height = h;
-      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-      const dataURL = canvas.toDataURL("image/jpeg", 0.82);
-      lastImageB64 = dataURL.split(",")[1];
-      $("previewImg").src = dataURL;
-      startExtract();
-    };
-    img.src = ev.target.result;
-  };
-  reader.readAsDataURL(file);
+  if(files.length) processPhotos(files);
 }
 
-function resetScan(){
-  extracted = []; lastImageB64 = null;
-  $("scanIdle").style.display = ""; $("scanWorking").style.display = "none";
-  $("scanReview").style.display = "none";
-}
-
-async function startExtract(){
+async function processPhotos(files){
   $("scanIdle").style.display = "none";
   $("scanWorking").style.display = "";
   $("scanReview").style.display = "none";
-  $("scanStatus").textContent = "Reading OT list with AI…";
-  try {
-    const result = await claudeExtract(lastImageB64);
+  groups = [];
+  try{
+    for(let i=0;i<files.length;i++){
+      $("scanStatus").textContent = files.length>1
+        ? `Reading photo ${i+1} of ${files.length}…`
+        : "Reading OT list with AI…";
+      const dataURL = await fileToDataURL(files[i]);
+      $("previewImg").src = dataURL;
+      const payload = await claudeExtract(dataURL.split(",")[1]);
+      const cases = (payload.cases||[]).map(c=>({
+        name:(c.name||"").toUpperCase(), rn:c.rn||"",
+        diagnosis:c.diagnosis||"", procedure:c.procedure||"",
+        oap:"", include:true
+      }));
+      if(cases.length){
+        groups.push({
+          dateISO: headerDateToISO(payload.date) || new Date().toISOString().slice(0,10),
+          label: files.length>1 ? ("Photo " + (i+1)) : "OT list",
+          cases
+        });
+      }
+    }
+    if(!groups.length){ resetScan(); toast("No patient rows found in the photo(s)"); return; }
     engineLabel = "Claude AI";
-    showReview(result);
-  } catch(err){
+    showReview();
+  }catch(err){
     console.error(err);
     resetScan();
-    toast("Extraction failed: " + err.message, 4200);
+    toast("Extraction failed: " + err.message, 5200);
   }
+}
+
+function fileToDataURL(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onerror = ()=>reject(new Error("Could not read the photo file"));
+    reader.onload = ev=>{
+      const img = new Image();
+      img.onerror = ()=>reject(new Error("Could not decode the photo"));
+      img.onload = ()=>{
+        const maxDim = 1600;
+        let w = img.width, h = img.height;
+        if (Math.max(w,h) > maxDim){
+          const sc = maxDim / Math.max(w,h);
+          w = Math.round(w*sc); h = Math.round(h*sc);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function resetScan(){
+  groups = [];
+  $("scanIdle").style.display = ""; $("scanWorking").style.display = "none";
+  $("scanReview").style.display = "none";
 }
 
 async function claudeExtract(b64){
@@ -516,49 +537,70 @@ Rules:
 - "procedure" is the proposed operation.
 - Ignore remarks, surgeon, status and booked-by columns. Include late-list/cancelled rows.`;
 
-  const headers = {"Content-Type": "application/json"};
   const key = $("apiKeyInput").value.trim();
   const body = JSON.stringify({
     model: "claude-sonnet-4-6",
-    max_tokens: 1000,
+    max_tokens: 4000,
     messages: [{role:"user", content:[
       {type:"image", source:{type:"base64", media_type:"image/jpeg", data:b64}},
       {type:"text", text:prompt}
     ]}]
   });
 
-  let resp = await fetch("https://api.anthropic.com/v1/messages", {method:"POST", headers, body});
-  if (resp.status===401 && key){
-    // Standalone (home-screen) mode: retry with the user's own key
-    resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST",
-      headers: {...headers, "x-api-key": key, "anthropic-version": "2023-06-01",
-                "anthropic-dangerous-direct-browser-access": "true"},
-      body
-    });
+  let resp;
+  if (key){
+    // Standalone mode (home-screen / GitHub Pages): the key + browser-access
+    // headers must be sent on the FIRST request, otherwise Safari blocks it.
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body
+      });
+    } catch(e){
+      throw new Error("Network blocked — check your internet connection and try again.");
+    }
+  } else {
+    // Inside Claude the platform injects credentials automatically.
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body
+      });
+    } catch(e){
+      throw new Error("AI unreachable from here. Add an API key under Export → AI Settings (required when the app runs outside Claude).");
+    }
+    if (resp.status === 401){
+      throw new Error("Add an API key under Export → AI Settings (required when the app runs outside Claude).");
+    }
   }
+
   if (!resp.ok){
-    const t = await resp.text();
-    throw new Error(resp.status===401
-      ? "Unauthorized — add an API key under Export → AI Settings."
-      : "API " + resp.status + ": " + t.slice(0,120));
+    const t = await resp.text().catch(()=> "");
+    if (resp.status === 401) throw new Error("API key rejected — re-check it under Export → AI Settings.");
+    if (resp.status === 429) throw new Error("Rate limited — wait a minute and try again.");
+    if (t.toLowerCase().includes("credit")) throw new Error("Out of API credits — top up at console.anthropic.com → Billing.");
+    throw new Error("API " + resp.status + ": " + t.slice(0,140));
   }
+
   const data = await resp.json();
   const text = (data.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("");
   const cleaned = text.replace(/```json|```/g,"").trim();
   let payload;
   try { payload = JSON.parse(cleaned); }
   catch(e){
-    // salvage: find first { ... last }
     const a = cleaned.indexOf("{"), b = cleaned.lastIndexOf("}");
     if (a>=0 && b>a) payload = JSON.parse(cleaned.slice(a,b+1));
-    else throw new Error("Could not parse AI response");
+    else throw new Error("Could not parse the AI response — try a clearer photo.");
   }
   return payload;
 }
 
 function headerDateToISO(s){
-  // "21 JANUARY 2026" -> "2026-01-21"
   const months = {JANUARY:1,FEBRUARY:2,MARCH:3,APRIL:4,MAY:5,JUNE:6,JULY:7,
     AUGUST:8,SEPTEMBER:9,OCTOBER:10,NOVEMBER:11,DECEMBER:12};
   const m = /(\d{1,2})\s+([A-Z]+)\s+(\d{4})/i.exec(s||"");
@@ -568,67 +610,70 @@ function headerDateToISO(s){
   return m[3] + "-" + String(mo).padStart(2,"0") + "-" + String(+m[1]).padStart(2,"0");
 }
 
-function showReview(payload){
-  extracted = (payload.cases||[]).map(c=>({
-    name:(c.name||"").toUpperCase(), rn:c.rn||"", diagnosis:c.diagnosis||"",
-    procedure:c.procedure||"", oap:"", include:true
-  }));
-  if(!extracted.length){ resetScan(); toast("No patient rows found in the photo"); return; }
+function showReview(){
   $("scanWorking").style.display = "none";
   $("scanReview").style.display = "";
-  $("foundCount").textContent = extracted.length + " cases found";
+  const total = groups.reduce((s,g)=>s+g.cases.length, 0);
+  $("foundCount").textContent = total + " case" + (total===1?"":"s") + " found" +
+    (groups.length>1 ? " in " + groups.length + " photos" : "");
   $("engineUsed").textContent = engineLabel;
-  const iso = headerDateToISO(payload.date);
-  $("batchDate").value = iso || new Date().toISOString().slice(0,10);
   renderReview();
 }
 
 function renderReview(){
-  const dateDMY = isoToDMY($("batchDate").value);
   const existing = new Set(entries.map(dkey));
-  $("reviewCards").innerHTML = extracted.map((c,i)=>{
-    const dup = existing.has((c.rn||"").toLowerCase().trim() + "|" + dateDMY);
-    return `<div class="review-card ${c.include?"":"excluded"}">
-      <label class="chk"><input type="checkbox" ${c.include?"checked":""}
-        onchange="extracted[${i}].include=this.checked; renderReview()">
-        ${esc(c.name)||"(no name)"}</label>
-      ${c.include ? `
-      <label class="f">Name</label><input type="text" value="${esc(c.name)}" oninput="extracted[${i}].name=this.value">
-      <div class="row2">
-        <div><label class="f">RN</label><input type="text" inputmode="numeric" value="${esc(c.rn)}" oninput="extracted[${i}].rn=this.value"></div>
-      </div>
-      <label class="f">Diagnosis</label><textarea oninput="extracted[${i}].diagnosis=this.value">${esc(c.diagnosis)}</textarea>
-      <label class="f">Procedure</label><textarea oninput="extracted[${i}].procedure=this.value">${esc(c.procedure)}</textarea>
-      <label class="f">Role — O / A / P</label>
-      <div class="seg">
-        <button class="${c.oap==='O'?'sel-O':''}" onclick="toggleOAP(${i},'O')">O</button>
-        <button class="${c.oap==='A'?'sel-A':''}" onclick="toggleOAP(${i},'A')">A</button>
-        <button class="${c.oap==='P'?'sel-P':''}" onclick="toggleOAP(${i},'P')">P</button>
-      </div>
-      ${dup ? `<div class="dup">⚠️ Already in logbook — will be skipped</div>` : ""}
-      ` : ""}
-    </div>`;
+  $("reviewCards").innerHTML = groups.map((g,gi)=>{
+    const dateDMY = isoToDMY(g.dateISO);
+    let html = `<div class="card"><b>📷 ${esc(g.label)} — ${g.cases.length} case${g.cases.length===1?"":"s"}</b>
+      <label class="f">Surgery date (from list header — adjust if wrong)</label>
+      <input type="date" value="${g.dateISO}" onchange="groups[${gi}].dateISO=this.value; renderReview()"></div>`;
+    html += g.cases.map((c,i)=>{
+      const dup = existing.has((c.rn||"").toLowerCase().trim() + "|" + dateDMY);
+      return `<div class="review-card ${c.include?"":"excluded"}">
+        <label class="chk"><input type="checkbox" ${c.include?"checked":""}
+          onchange="groups[${gi}].cases[${i}].include=this.checked; renderReview()">
+          ${esc(c.name)||"(no name)"}</label>
+        ${c.include ? `
+        <label class="f">Name</label><input type="text" value="${esc(c.name)}" oninput="groups[${gi}].cases[${i}].name=this.value">
+        <label class="f">RN</label><input type="text" inputmode="numeric" value="${esc(c.rn)}" oninput="groups[${gi}].cases[${i}].rn=this.value">
+        <label class="f">Diagnosis</label><textarea oninput="groups[${gi}].cases[${i}].diagnosis=this.value">${esc(c.diagnosis)}</textarea>
+        <label class="f">Procedure</label><textarea oninput="groups[${gi}].cases[${i}].procedure=this.value">${esc(c.procedure)}</textarea>
+        <label class="f">Role — O / A / P</label>
+        <div class="seg">
+          <button class="${c.oap==='O'?'sel-O':''}" onclick="toggleOAP(${gi},${i},'O')">O</button>
+          <button class="${c.oap==='A'?'sel-A':''}" onclick="toggleOAP(${gi},${i},'A')">A</button>
+          <button class="${c.oap==='P'?'sel-P':''}" onclick="toggleOAP(${gi},${i},'P')">P</button>
+        </div>
+        ${dup ? `<div class="dup">⚠️ Already in logbook — will be skipped</div>` : ""}
+        ` : ""}
+      </div>`;
+    }).join("");
+    return html;
   }).join("");
 }
-function toggleOAP(i,v){
-  extracted[i].oap = extracted[i].oap===v ? "" : v;
+
+function toggleOAP(g,i,v){
+  const c = groups[g].cases[i];
+  c.oap = c.oap===v ? "" : v;
   renderReview();
 }
 
 async function saveExtracted(){
-  const dateDMY = isoToDMY($("batchDate").value);
-  if(!dateDMY){ toast("Set the surgery date first"); return; }
   const existing = new Set(entries.map(dkey));
   let saved=0, skipped=0;
-  for(const c of extracted){
-    if(!c.include) continue;
-    if(!c.rn.trim()){ skipped++; continue; }
-    const key = c.rn.toLowerCase().trim() + "|" + dateDMY;
-    if(existing.has(key)){ skipped++; continue; }
-    existing.add(key);
-    entries.push({date:dateDMY, name:c.name.trim(), rn:c.rn.trim(),
-      diagnosis:c.diagnosis.trim(), procedure:c.procedure.trim(), oap:c.oap});
-    saved++;
+  for(const g of groups){
+    const dateDMY = isoToDMY(g.dateISO);
+    if(!dateDMY){ toast("Set the surgery date for " + g.label); return; }
+    for(const c of g.cases){
+      if(!c.include) continue;
+      if(!c.rn.trim()){ skipped++; continue; }
+      const key = c.rn.toLowerCase().trim() + "|" + dateDMY;
+      if(existing.has(key)){ skipped++; continue; }
+      existing.add(key);
+      entries.push({date:dateDMY, name:c.name.trim(), rn:c.rn.trim(),
+        diagnosis:c.diagnosis.trim(), procedure:c.procedure.trim(), oap:c.oap});
+      saved++;
+    }
   }
   sortEntries(); await persist();
   resetScan(); showTab("logbook"); renderList();
