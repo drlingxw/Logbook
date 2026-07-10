@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1F4E79">
+<title>Ortho Logbook</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  :root {
+    --blue: #1F4E79; --blue-light: #EEF4FA;
+    --green: #1e8e3e; --amber: #e37400; --red: #c5221f;
+    --bg: #f4f6f8; --card: #ffffff; --border: #e0e4e8;
+    --text: #1a1d21; --muted: #6b7280;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    padding-bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+  header {
+    background: var(--blue); color: #fff; padding: 14px 16px;
+    padding-top: calc(14px + env(safe-area-inset-top));
+    position: sticky; top: 0; z-index: 20;
+  }
+  header h1 { margin: 0; font-size: 17px; font-weight: 700; }
+  header .sub { font-size: 12px; opacity: .85; margin-top: 2px; }
+  .banner {
+    background: #fff7e0; color: #7a5b00; font-size: 12px;
+    padding: 8px 14px; border-bottom: 1px solid #f0e2b0; display: none;
+  }
+  main { padding: 12px; max-width: 640px; margin: 0 auto; }
+  .tabbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+    background: rgba(255,255,255,.96); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border); display: flex;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tabbar button {
+    flex: 1; background: none; border: none; padding: 9px 0 7px;
+    font-size: 10.5px; color: var(--muted); cursor: pointer;
+  }
+  .tabbar button .icon { font-size: 21px; display: block; margin-bottom: 2px; }
+  .tabbar button.active { color: var(--blue); font-weight: 600; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px; margin-bottom: 12px;
+  }
+  .stats { display: flex; gap: 8px; }
+  .stat { flex: 1; text-align: center; padding: 10px 4px; border-radius: 12px; }
+  .stat .n { font-size: 21px; font-weight: 800; }
+  .stat .l { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .stat.p { background: #e6f4ea; } .stat.p .n { color: var(--green); }
+  .stat.a { background: #e8f0fe; } .stat.a .n { color: var(--blue); }
+  .stat.o { background: #fef3e0; } .stat.o .n { color: var(--amber); }
+  input[type=text], input[type=search], input[type=password], input[type=date], textarea, select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 15px; background: #fff; color: var(--text);
+    font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 44px; }
+  label.f { display: block; font-size: 11.5px; color: var(--muted); margin: 10px 0 4px; font-weight: 600; }
+  .btn {
+    display: block; width: 100%; padding: 13px; border: none; border-radius: 12px;
+    font-size: 15.5px; font-weight: 600; cursor: pointer; margin-top: 10px;
+    background: var(--blue); color: #fff;
+  }
+  .btn.secondary { background: #e8eef5; color: var(--blue); }
+  .btn.purple { background: #6b3fa0; }
+  .btn.green { background: var(--green); }
+  .btn.danger { background: #fce8e6; color: var(--red); }
+  .btn:disabled { opacity: .5; }
+  .btn.small { padding: 8px 12px; font-size: 13px; width: auto; display: inline-block; }
+  .entry {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 11px 12px; margin-bottom: 8px; cursor: pointer;
+  }
+  .entry .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .entry .name { font-weight: 700; font-size: 14px; flex: 1; }
+  .entry .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .entry .proc { font-size: 12.5px; margin-top: 3px; }
+  .oap-badge {
+    min-width: 28px; height: 28px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-weight: 800; font-size: 13px;
+    flex-shrink: 0;
+  }
+  .oap-P { background: #e6f4ea; color: var(--green); }
+  .oap-A { background: #e8f0fe; color: var(--blue); }
+  .oap-O { background: #fef3e0; color: var(--amber); }
+  .oap-none { background: #f1f3f4; color: var(--muted); }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 6px; }
+  .seg button {
+    flex: 1; padding: 9px 0; border: none; background: #fff; font-size: 14px;
+    font-weight: 600; color: var(--muted); cursor: pointer;
+  }
+  .seg button.sel-O { background: #fef3e0; color: var(--amber); }
+  .seg button.sel-A { background: #e8f0fe; color: var(--blue); }
+  .seg button.sel-P { background: #e6f4ea; color: var(--green); }
+  .filterrow { display: flex; gap: 8px; margin-bottom: 10px; }
+  .filterrow select { width: auto; flex-shrink: 0; }
+  .review-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 10px; background: #fff; }
+  .review-card.excluded { opacity: .45; }
+  .review-card .dup { font-size: 11.5px; color: var(--amber); margin-top: 6px; font-weight: 600; }
+  .chk { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+  .chk input { width: 20px; height: 20px; }
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 50;
+    display: none; align-items: flex-end; justify-content: center;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--bg); border-radius: 18px 18px 0 0; width: 100%; max-width: 640px;
+    max-height: 88vh; overflow-y: auto; padding: 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .modal h3 { margin: 0 0 10px; font-size: 16px; }
+  .toast {
+    position: fixed; bottom: calc(84px + env(safe-area-inset-bottom)); left: 50%;
+    transform: translateX(-50%); background: #323639; color: #fff;
+    padding: 11px 20px; border-radius: 24px; font-size: 13.5px; z-index: 100;
+    opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 88vw; text-align: center;
+  }
+  .toast.show { opacity: 1; }
+  .spinner {
+    border: 3px solid #e0e4e8; border-top-color: var(--blue); border-radius: 50%;
+    width: 30px; height: 30px; animation: spin .8s linear infinite; margin: 14px auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .preview { width: 100%; border-radius: 12px; max-height: 280px; object-fit: contain; background: #000; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .empty { text-align: center; color: var(--muted); padding: 36px 20px; font-size: 14px; }
+  .empty .big { font-size: 44px; margin-bottom: 10px; }
+  .pill { font-size: 11px; background: var(--blue-light); color: var(--blue); border-radius: 20px; padding: 3px 10px; font-weight: 700; display: inline-block; }
+  h2.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 4px 8px; }
+  .row2 { display: flex; gap: 8px; } .row2 > * { flex: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🦴 Ortho Logbook — Dr Ling Xiu Wen</h1>
+  <div class="sub" id="headerSub">Loading…</div>
+</header>
+<div class="banner" id="storageBanner">
+  ⚠️ Persistent storage unavailable — data lives only in this session. Use Export → Backup JSON regularly.
+</div>
+
+<main>
+  <!-- ============ LOGBOOK TAB ============ -->
+  <div id="tab-logbook">
+    <div class="card stats">
+      <div class="stat p"><div class="n" id="statP">0</div><div class="l">Performed</div></div>
+      <div class="stat a"><div class="n" id="statA">0</div><div class="l">Assisted</div></div>
+      <div class="stat o"><div class="n" id="statO">0</div><div class="l">Observed</div></div>
+    </div>
+    <div class="filterrow">
+      <input type="search" id="searchBox" placeholder="Search name, RN, diagnosis…" oninput="renderList()">
+      <select id="oapFilter" onchange="renderList()">
+        <option value="">All</option><option value="P">P</option>
+        <option value="A">A</option><option value="O">O</option>
+      </select>
+    </div>
+    <button class="btn secondary small" onclick="openEdit(-1)">＋ Add entry manually</button>
+    <div id="entryList" style="margin-top:10px"></div>
+    <button class="btn secondary" id="moreBtn" style="display:none" onclick="renderLimit += 150; renderList()">Show more</button>
+  </div>
+
+  <!-- ============ SCAN TAB ============ -->
+  <div id="tab-scan" style="display:none">
+    <div id="scanIdle">
+      <div class="card">
+        <b>⭐ Import from Claude <span class="pill">uses your Pro plan — free</span></b>
+        <div class="hint" style="margin-top:6px">
+          <b>One-time setup:</b> in the Claude app create a Project (e.g. “OT Extractor”) and paste the extraction prompt (button below) into its <i>instructions</i>.<br>
+          <b>Daily:</b> drop your OT photos into that project → Claude replies with JSON → copy it → paste below.
+        </div>
+        <button class="btn secondary" onclick="copyPrompt()">📋 Copy extraction prompt</button>
+        <label class="f">Paste Claude's JSON reply here</label>
+        <textarea id="pasteBox" style="min-height:90px" placeholder='[{"date":"21 JANUARY 2026","cases":[…]}]'></textarea>
+        <button class="btn" onclick="processPasted()">Process pasted text</button>
+      </div>
+      <div class="card">
+        <b>Scan directly <span class="pill" style="background:#f1f3f4;color:#6b7280">needs API key · pay-per-use</span></b>
+        <button class="btn" onclick="document.getElementById('camInput').click()">📷 Take Photo</button>
+        <button class="btn secondary" onclick="document.getElementById('libInput').click()">🖼 Choose from Library (multi-select)</button>
+        <input type="file" id="camInput" accept="image/*" capture="environment" hidden onchange="onPhoto(this)">
+        <input type="file" id="libInput" accept="image/*" multiple hidden onchange="onPhoto(this)">
+      </div>
+    </div>
+
+    <div class="card" id="scanWorking" style="display:none">
+      <img id="previewImg" class="preview">
+      <div class="spinner"></div>
+      <div style="text-align:center;font-size:14px;color:var(--muted)" id="scanStatus">Reading OT list with AI…</div>
+    </div>
+
+    <div id="scanReview" style="display:none">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <b id="foundCount">0 cases found</b>
+          <span class="pill" id="engineUsed">Claude AI</span>
+        </div>
+        <div class="hint">Check each case, set O / A / P, untick cases that aren't yours. Each photo has its own date.</div>
+      </div>
+      <div id="reviewCards"></div>
+      <button class="btn green" onclick="saveExtracted()">💾 Save All to Logbook</button>
+      <button class="btn danger" onclick="resetScan()">Discard</button>
+    </div>
+  </div>
+
+  <!-- ============ EXPORT TAB ============ -->
+  <div id="tab-export" style="display:none">
+    <div class="card">
+      <b>Logbook</b>
+      <div class="hint" id="exportInfo"></div>
+    </div>
+    <h2 class="sec">Download</h2>
+    <div class="card">
+      <button class="btn" onclick="exportDocx()">📄 Word (.docx) — master format</button>
+      <button class="btn secondary" onclick="exportPdf()">📄 PDF</button>
+      <div class="hint">On iPhone the file opens/downloads — use the <b>Share</b> button to save to <b>Files (iCloud Drive)</b> or the <b>Google Drive</b> app. Note: Chinese names (Taiwan rotation) render correctly in the Word file; the PDF uses a Latin font.</div>
+    </div>
+    <h2 class="sec">Backup & Sync</h2>
+    <div class="card">
+      <button class="btn secondary" onclick="exportBackup()">⬇️ Download backup (.json)</button>
+      <button class="btn secondary" onclick="document.getElementById('importInput').click()">⬆️ Import / merge backup</button>
+      <input type="file" id="importInput" accept=".json,application/json" hidden onchange="importBackup(this)">
+      <div class="hint">To sync a master copy: download the backup or Word file, then share it to Google Drive / iCloud Drive. Import a backup on another device to merge (duplicates are skipped automatically).</div>
+    </div>
+    <h2 class="sec">AI Settings</h2>
+    <div class="card">
+      <label class="f">Anthropic API key (only needed if extraction says “unauthorized”)</label>
+      <input type="password" id="apiKeyInput" placeholder="sk-ant-…  (optional)">
+      <button class="btn secondary small" style="margin-top:8px" onclick="saveKey()">Save key</button>
+      <div class="hint">Only needed for the in-app camera scan (pay-per-use). The “Import from Claude” method on the Scan tab is free with your Claude Pro subscription — no key required.</div>
+    </div>
+    <h2 class="sec">Danger zone</h2>
+    <div class="card">
+      <button class="btn danger" onclick="resetAll()" id="resetBtn">Reset / erase logbook</button>
+    </div>
+  </div>
+</main>
+
+<!-- ============ TAB BAR ============ -->
+<nav class="tabbar">
+  <button id="tb-logbook" class="active" onclick="showTab('logbook')"><span class="icon">📖</span>Logbook</button>
+  <button id="tb-scan" onclick="showTab('scan')"><span class="icon">📷</span>Scan</button>
+  <button id="tb-export" onclick="showTab('export')"><span class="icon">⬇️</span>Export</button>
+</nav>
+
+<!-- ============ EDIT MODAL ============ -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3 id="editTitle">Edit entry</h3>
+    <label class="f">Date</label><input type="date" id="eDate">
+    <label class="f">Patient name</label><input type="text" id="eName" autocapitalize="characters">
+    <label class="f">RN</label><input type="text" id="eRN" inputmode="numeric">
+    <label class="f">Diagnosis</label><textarea id="eDiag"></textarea>
+    <label class="f">Procedure</label><textarea id="eProc"></textarea>
+    <label class="f">Role — O / A / P</label>
+    <div class="seg" id="eSeg">
+      <button onclick="setEditOAP('O')">O</button>
+      <button onclick="setEditOAP('A')">A</button>
+      <button onclick="setEditOAP('P')">P</button>
+    </div>
+    <div class="row2">
+      <button class="btn green" onclick="saveEdit()">Save</button>
+      <button class="btn secondary" onclick="closeEdit()">Cancel</button>
+    </div>
+    <button class="btn danger" id="deleteBtn" onclick="deleteEntry()">Delete entry</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= SEED DATA (1,085 entries) ================= */
+const SEED = [];
+
+/* ================= STATE & STORAGE ================= */
+let entries = [];          // {date:"d/m/yyyy", name, rn, diagnosis, procedure, oap}
+let storageOK = false;
+let renderLimit = 150;
+let editIdx = -1, editOAP = "";
+let groups = [];           // review groups, one per photo
+let engineLabel = "";
+
+const $ = id => document.getElementById(id);
+
+function toast(msg, ms=2400){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("show"), ms);
+}
+
+function parseDMY(s){
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((s||"").trim());
+  if(!m) return new Date(0);
+  return new Date(+m[3], +m[2]-1, +m[1]);
+}
+function toDMY(d){ return d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear(); }
+function toISO(dmy){
+  const d = parseDMY(dmy);
+  if (d.getTime()===0) return "";
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function isoToDMY(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||"");
+  if(!m) return "";
+  return (+m[3]) + "/" + (+m[2]) + "/" + m[1];
+}
+function dkey(e){ return (e.rn||"").toLowerCase().trim() + "|" + (e.date||"").trim(); }
+
+/* Storage adapter:
+   1) window.storage (Claude artifact persistent storage) when available,
+   2) otherwise browser localStorage — this branch only runs when the file is
+      opened standalone in Safari/Chrome (outside Claude), where localStorage
+      is the only persistence option. Inside Claude it is never touched. */
+const store = {
+  async get(k){
+    if (typeof window.storage !== "undefined" && window.storage && window.storage.get){
+      try { const r = await window.storage.get(k); return r ? r.value : null; }
+      catch(e){ return null; }
+    }
+    try { return localStorage.getItem(k); } catch(e){ return null; }
+  },
+  async set(k, v){
+    if (typeof window.storage !== "undefined" && window.storage && window.storage.set){
+      try { await window.storage.set(k, v); return true; } catch(e){ return false; }
+    }
+    try { localStorage.setItem(k, v); return true; } catch(e){ return false; }
+  }
+};
+
+async function persist(){
+  const ok = await store.set("logbook-v1", JSON.stringify(entries));
+  if (!ok && storageOK){ storageOK = false; $("storageBanner").style.display = "block"; }
+}
+
+async function boot(){
+  // Restore saved logbook (Claude storage or localStorage)
+  const saved = await store.get("logbook-v1");
+  if (saved){
+    try { entries = JSON.parse(saved); storageOK = true; } catch(e){}
+  }
+  if (!entries.length && SEED.length){
+    entries = SEED.map(s => ({date:s.date, name:s.name, rn:s.rn,
+      diagnosis:s.diagnosis, procedure:s.procedure, oap:s.oap}));
+    storageOK = await store.set("logbook-v1", JSON.stringify(entries));
+  } else if (!saved){
+    // probe whether persistence works at all
+    storageOK = await store.set("logbook-probe", "1");
+  }
+  if (!storageOK) $("storageBanner").style.display = "block";
+
+  // API key
+  const k = await store.get("api-key");
+  if (k) $("apiKeyInput").value = k;
+
+  sortEntries();
+  renderList();
+}
+
+function sortEntries(){
+  entries.sort((a,b)=> parseDMY(a.date) - parseDMY(b.date));
+}
+
+/* ================= TABS ================= */
+function showTab(name){
+  ["logbook","scan","export"].forEach(t=>{
+    $("tab-"+t).style.display = t===name ? "" : "none";
+    $("tb-"+t).classList.toggle("active", t===name);
+  });
+  if(name==="export") renderExportInfo();
+  window.scrollTo(0,0);
+}
+
+/* ================= LOGBOOK LIST ================= */
+function renderList(){
+  const q = ($("searchBox").value||"").toLowerCase();
+  const f = $("oapFilter").value;
+  const list = entries
+    .map((e,i)=>({e,i}))
+    .filter(({e}) =>
+      (!f || (e.oap||"").toUpperCase()===f) &&
+      (!q || (e.name||"").toLowerCase().includes(q) || (e.rn||"").includes(q) ||
+       (e.diagnosis||"").toLowerCase().includes(q) || (e.procedure||"").toLowerCase().includes(q)))
+    .reverse(); // newest first
+
+  const total = entries.length;
+  $("headerSub").textContent = total + " entries · " +
+    (entries[0]?entries[0].date:"—") + " → " + (entries[total-1]?entries[total-1].date:"—");
+  $("statP").textContent = entries.filter(e=>(e.oap||"").toUpperCase()==="P").length;
+  $("statA").textContent = entries.filter(e=>(e.oap||"").toUpperCase()==="A").length;
+  $("statO").textContent = entries.filter(e=>(e.oap||"").toUpperCase()==="O").length;
+
+  const slice = list.slice(0, renderLimit);
+  $("entryList").innerHTML = slice.map(({e,i})=>{
+    const oap = (e.oap||"").toUpperCase();
+    const cls = oap==="P"?"oap-P":oap==="A"?"oap-A":oap==="O"?"oap-O":"oap-none";
+    return `<div class="entry" onclick="openEdit(${i})">
+      <div class="top">
+        <div class="name">${esc(e.name)}</div>
+        <div class="oap-badge ${cls}">${oap||"—"}</div>
+      </div>
+      <div class="meta">${esc(e.date)} · RN ${esc(e.rn)}</div>
+      <div class="proc">${esc(e.procedure)}</div>
+    </div>`;
+  }).join("") || (entries.length === 0
+    ? `<div class="empty"><div class="big">📥</div>Logbook is empty.<br><br>Go to <b>Export → Import / merge backup</b><br>and load <b>OrthoLogbook_seed.json</b><br>to bring in your 1,085 entries.</div>`
+    : `<div class="empty"><div class="big">🔍</div>No matching entries</div>`);
+
+  $("moreBtn").style.display = list.length > renderLimit ? "" : "none";
+}
+
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+/* ================= EDIT MODAL ================= */
+function openEdit(i){
+  editIdx = i;
+  const e = i>=0 ? entries[i] : {date: toDMY(new Date()), name:"", rn:"", diagnosis:"", procedure:"", oap:""};
+  $("editTitle").textContent = i>=0 ? "Edit entry" : "New entry";
+  $("eDate").value = toISO(e.date);
+  $("eName").value = e.name; $("eRN").value = e.rn;
+  $("eDiag").value = e.diagnosis; $("eProc").value = e.procedure;
+  editOAP = "";  // reset before applying, otherwise toggle logic could clear it
+  setEditOAP((e.oap||"").toUpperCase());
+  $("deleteBtn").style.display = i>=0 ? "" : "none";
+  $("editModal").classList.add("open");
+}
+function setEditOAP(v){
+  editOAP = (editOAP===v) ? "" : v;
+  [...$("eSeg").children].forEach(b=>{
+    b.className = (b.textContent===editOAP) ? "sel-"+editOAP : "";
+  });
+}
+function closeEdit(){ $("editModal").classList.remove("open"); }
+async function saveEdit(){
+  const e = {
+    date: isoToDMY($("eDate").value) || toDMY(new Date()),
+    name: $("eName").value.trim().toUpperCase(),
+    rn: $("eRN").value.trim(),
+    diagnosis: $("eDiag").value.trim(),
+    procedure: $("eProc").value.trim(),
+    oap: editOAP
+  };
+  if(!e.name || !e.rn){ toast("Name and RN are required"); return; }
+  if(editIdx>=0) entries[editIdx] = e; else entries.push(e);
+  sortEntries(); await persist(); closeEdit(); renderList();
+  toast("Saved ✓");
+}
+async function deleteEntry(){
+  if(editIdx<0) return;
+  if(!confirm("Delete this entry?")) return;
+  entries.splice(editIdx,1);
+  await persist(); closeEdit(); renderList();
+  toast("Deleted");
+}
+
+/* ================= SCAN & EXTRACT ================= */
+const EXTRACTION_PROMPT = `You are an OT-list extractor for a surgical logbook. For EVERY image I send in this conversation, extract EVERY patient row from the operation theatre list, plus the list date from the header (e.g. "21 JANUARY 2026").
+
+Reply ONLY with JSON, no markdown fences, no commentary - an array with one object per image, in the order sent:
+[{"date":"<header date or empty>","cases":[{"name":"","rn":"","diagnosis":"","procedure":""}]}]
+
+Rules:
+- "rn" is the 7-8 digit registration number beside the patient name (keep leading zeros).
+- "diagnosis" excludes the words "Clinical Diagnosis :".
+- "procedure" is the proposed operation.
+- Ignore remarks, surgeon, status and booked-by columns. Include late-list/cancelled rows.`;
+
+async function copyPrompt(){
+  try {
+    await navigator.clipboard.writeText(EXTRACTION_PROMPT);
+    toast("Prompt copied ✓ — paste it into your Claude Project's instructions", 4200);
+  } catch(e){
+    const ta = $("pasteBox");
+    ta.value = EXTRACTION_PROMPT; ta.focus(); ta.select();
+    toast("Clipboard blocked — the prompt is shown in the box below; copy it manually, then clear the box", 5200);
+  }
+}
+
+function processPasted(){
+  const raw = $("pasteBox").value.trim();
+  if(!raw){ toast("Paste Claude's JSON reply first"); return; }
+  let payloads;
+  try { payloads = normalizePayloads(raw); }
+  catch(e){ toast("Couldn't parse that — copy Claude's whole JSON reply and try again", 4800); return; }
+  groups = [];
+  payloads.forEach((p, i)=>{
+    const cases = (p.cases||[]).map(c=>({
+      name:(c.name||"").toUpperCase(), rn:String(c.rn||""),
+      diagnosis:c.diagnosis||"", procedure:c.procedure||"",
+      oap:"", include:true
+    }));
+    if(cases.length) groups.push({
+      dateISO: headerDateToISO(p.date) || new Date().toISOString().slice(0,10),
+      label: payloads.length>1 ? ("List " + (i+1)) : "OT list",
+      cases
+    });
+  });
+  if(!groups.length){ toast("No cases found in the pasted text"); return; }
+  engineLabel = "Claude (Pro)";
+  $("pasteBox").value = "";
+  $("scanIdle").style.display = "none";
+  showReview();
+}
+
+function normalizePayloads(raw){
+  const cleaned = raw.replace(/```json|```/g, "").trim();
+  let obj;
+  try { obj = JSON.parse(cleaned); }
+  catch(e){
+    const starts = ['[','{'].map(ch => cleaned.indexOf(ch)).filter(i => i >= 0);
+    const a = starts.length ? Math.min(...starts) : -1;
+    const b = Math.max(cleaned.lastIndexOf(']'), cleaned.lastIndexOf('}'));
+    if(a < 0 || b <= a) throw e;
+    obj = JSON.parse(cleaned.slice(a, b+1));
+  }
+  if (Array.isArray(obj)) return obj;
+  if (obj && Array.isArray(obj.cases)) return [obj];
+  if (obj && Array.isArray(obj.lists)) return obj.lists;
+  throw new Error("unrecognized shape");
+}
+
+function onPhoto(input){
+  const files = Array.from(input.files || []);
+  input.value = "";
+  if(files.length) processPhotos(files);
+}
+
+async function processPhotos(files){
+  $("scanIdle").style.display = "none";
+  $("scanWorking").style.display = "";
+  $("scanReview").style.display = "none";
+  groups = [];
+  try{
+    for(let i=0;i<files.length;i++){
+      $("scanStatus").textContent = files.length>1
+        ? `Reading photo ${i+1} of ${files.length}…`
+        : "Reading OT list with AI…";
+      const dataURL = await fileToDataURL(files[i]);
+      $("previewImg").src = dataURL;
+      const payload = await claudeExtract(dataURL.split(",")[1]);
+      const cases = (payload.cases||[]).map(c=>({
+        name:(c.name||"").toUpperCase(), rn:c.rn||"",
+        diagnosis:c.diagnosis||"", procedure:c.procedure||"",
+        oap:"", include:true
+      }));
+      if(cases.length){
+        groups.push({
+          dateISO: headerDateToISO(payload.date) || new Date().toISOString().slice(0,10),
+          label: files.length>1 ? ("Photo " + (i+1)) : "OT list",
+          cases
+        });
+      }
+    }
+    if(!groups.length){ resetScan(); toast("No patient rows found in the photo(s)"); return; }
+    engineLabel = "Claude AI";
+    showReview();
+  }catch(err){
+    console.error(err);
+    resetScan();
+    toast("Extraction failed: " + err.message, 5200);
+  }
+}
+
+function fileToDataURL(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onerror = ()=>reject(new Error("Could not read the photo file"));
+    reader.onload = ev=>{
+      const img = new Image();
+      img.onerror = ()=>reject(new Error("Could not decode the photo"));
+      img.onload = ()=>{
+        const maxDim = 1600;
+        let w = img.width, h = img.height;
+        if (Math.max(w,h) > maxDim){
+          const sc = maxDim / Math.max(w,h);
+          w = Math.round(w*sc); h = Math.round(h*sc);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function resetScan(){
+  groups = [];
+  $("scanIdle").style.display = ""; $("scanWorking").style.display = "none";
+  $("scanReview").style.display = "none";
+}
+
+async function claudeExtract(b64){
+  const prompt = `This photo shows a hospital Operation Theatre list (a table of surgical bookings). Extract EVERY patient row, and the list date from the header (e.g. "21 JANUARY 2026").
+
+Respond ONLY with JSON, no markdown fences, exactly this shape:
+{"date":"<date from header or empty>","cases":[{"name":"","rn":"","diagnosis":"","procedure":""}]}
+
+Rules:
+- "rn" is the 7-8 digit registration number beside the patient name (keep leading zeros).
+- "diagnosis" excludes the words "Clinical Diagnosis :".
+- "procedure" is the proposed operation.
+- Ignore remarks, surgeon, status and booked-by columns. Include late-list/cancelled rows.`;
+
+  const key = $("apiKeyInput").value.trim();
+  const body = JSON.stringify({
+    model: "claude-sonnet-4-6",
+    max_tokens: 4000,
+    messages: [{role:"user", content:[
+      {type:"image", source:{type:"base64", media_type:"image/jpeg", data:b64}},
+      {type:"text", text:prompt}
+    ]}]
+  });
+
+  let resp;
+  if (key){
+    // Standalone mode (home-screen / GitHub Pages): the key + browser-access
+    // headers must be sent on the FIRST request, otherwise Safari blocks it.
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body
+      });
+    } catch(e){
+      throw new Error("Network blocked — check your internet connection and try again.");
+    }
+  } else {
+    // Inside Claude the platform injects credentials automatically.
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body
+      });
+    } catch(e){
+      throw new Error("AI unreachable from here. Add an API key under Export → AI Settings (required when the app runs outside Claude).");
+    }
+    if (resp.status === 401){
+      throw new Error("Add an API key under Export → AI Settings (required when the app runs outside Claude).");
+    }
+  }
+
+  if (!resp.ok){
+    const t = await resp.text().catch(()=> "");
+    if (resp.status === 401) throw new Error("API key rejected — re-check it under Export → AI Settings.");
+    if (resp.status === 429) throw new Error("Rate limited — wait a minute and try again.");
+    if (t.toLowerCase().includes("credit")) throw new Error("Out of API credits — top up at console.anthropic.com → Billing.");
+    throw new Error("API " + resp.status + ": " + t.slice(0,140));
+  }
+
+  const data = await resp.json();
+  const text = (data.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("");
+  const cleaned = text.replace(/```json|```/g,"").trim();
+  let payload;
+  try { payload = JSON.parse(cleaned); }
+  catch(e){
+    const a = cleaned.indexOf("{"), b = cleaned.lastIndexOf("}");
+    if (a>=0 && b>a) payload = JSON.parse(cleaned.slice(a,b+1));
+    else throw new Error("Could not parse the AI response — try a clearer photo.");
+  }
+  return payload;
+}
+
+function headerDateToISO(s){
+  const months = {JANUARY:1,FEBRUARY:2,MARCH:3,APRIL:4,MAY:5,JUNE:6,JULY:7,
+    AUGUST:8,SEPTEMBER:9,OCTOBER:10,NOVEMBER:11,DECEMBER:12};
+  const m = /(\d{1,2})\s+([A-Z]+)\s+(\d{4})/i.exec(s||"");
+  if(!m) return "";
+  const mo = months[m[2].toUpperCase()];
+  if(!mo) return "";
+  return m[3] + "-" + String(mo).padStart(2,"0") + "-" + String(+m[1]).padStart(2,"0");
+}
+
+function showReview(){
+  $("scanWorking").style.display = "none";
+  $("scanReview").style.display = "";
+  const total = groups.reduce((s,g)=>s+g.cases.length, 0);
+  $("foundCount").textContent = total + " case" + (total===1?"":"s") + " found" +
+    (groups.length>1 ? " in " + groups.length + " photos" : "");
+  $("engineUsed").textContent = engineLabel;
+  renderReview();
+}
+
+function renderReview(){
+  const existing = new Set(entries.map(dkey));
+  $("reviewCards").innerHTML = groups.map((g,gi)=>{
+    const dateDMY = isoToDMY(g.dateISO);
+    let html = `<div class="card"><b>📷 ${esc(g.label)} — ${g.cases.length} case${g.cases.length===1?"":"s"}</b>
+      <label class="f">Surgery date (from list header — adjust if wrong)</label>
+      <input type="date" value="${g.dateISO}" onchange="groups[${gi}].dateISO=this.value; renderReview()"></div>`;
+    html += g.cases.map((c,i)=>{
+      const dup = existing.has((c.rn||"").toLowerCase().trim() + "|" + dateDMY);
+      return `<div class="review-card ${c.include?"":"excluded"}">
+        <label class="chk"><input type="checkbox" ${c.include?"checked":""}
+          onchange="groups[${gi}].cases[${i}].include=this.checked; renderReview()">
+          ${esc(c.name)||"(no name)"}</label>
+        ${c.include ? `
+        <label class="f">Name</label><input type="text" value="${esc(c.name)}" oninput="groups[${gi}].cases[${i}].name=this.value">
+        <label class="f">RN</label><input type="text" inputmode="numeric" value="${esc(c.rn)}" oninput="groups[${gi}].cases[${i}].rn=this.value">
+        <label class="f">Diagnosis</label><textarea oninput="groups[${gi}].cases[${i}].diagnosis=this.value">${esc(c.diagnosis)}</textarea>
+        <label class="f">Procedure</label><textarea oninput="groups[${gi}].cases[${i}].procedure=this.value">${esc(c.procedure)}</textarea>
+        <label class="f">Role — O / A / P</label>
+        <div class="seg">
+          <button class="${c.oap==='O'?'sel-O':''}" onclick="toggleOAP(${gi},${i},'O')">O</button>
+          <button class="${c.oap==='A'?'sel-A':''}" onclick="toggleOAP(${gi},${i},'A')">A</button>
+          <button class="${c.oap==='P'?'sel-P':''}" onclick="toggleOAP(${gi},${i},'P')">P</button>
+        </div>
+        ${dup ? `<div class="dup">⚠️ Already in logbook — will be skipped</div>` : ""}
+        ` : ""}
+      </div>`;
+    }).join("");
+    return html;
+  }).join("");
+}
+
+function toggleOAP(g,i,v){
+  const c = groups[g].cases[i];
+  c.oap = c.oap===v ? "" : v;
+  renderReview();
+}
+
+async function saveExtracted(){
+  const existing = new Set(entries.map(dkey));
+  let saved=0, skipped=0;
+  for(const g of groups){
+    const dateDMY = isoToDMY(g.dateISO);
+    if(!dateDMY){ toast("Set the surgery date for " + g.label); return; }
+    for(const c of g.cases){
+      if(!c.include) continue;
+      if(!c.rn.trim()){ skipped++; continue; }
+      const key = c.rn.toLowerCase().trim() + "|" + dateDMY;
+      if(existing.has(key)){ skipped++; continue; }
+      existing.add(key);
+      entries.push({date:dateDMY, name:c.name.trim(), rn:c.rn.trim(),
+        diagnosis:c.diagnosis.trim(), procedure:c.procedure.trim(), oap:c.oap});
+      saved++;
+    }
+  }
+  sortEntries(); await persist();
+  resetScan(); showTab("logbook"); renderList();
+  toast(`Saved ${saved} case${saved===1?"":"s"}` + (skipped?` · ${skipped} skipped (duplicate/blank)`:""));
+}
+
+/* ================= EXPORT: WORD ================= */
+const COLW = [600,950,2700,1100,2800,4300,670];
+const HEADS = ["NO","DATE","NAME","RN","DIAGNOSIS","PROCEDURES","O / A / P"];
+
+function xesc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function docxHeaderCell(t,w){
+  return `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/><w:shd w:val="clear" w:fill="1F4E79"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="FFFFFF"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">${xesc(t)}</w:t></w:r></w:p></w:tc>`;
+}
+function docxDataCell(t,w,shade){
+  return `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/><w:shd w:val="clear" w:fill="${shade}"/><w:tcMar><w:top w:w="50" w:type="dxa"/><w:bottom w:w="50" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr><w:p><w:r><w:rPr><w:sz w:val="14"/></w:rPr><w:t xml:space="preserve">${xesc(t)}</w:t></w:r></w:p></w:tc>`;
+}
+function titleP(text,size,bold,color="000000",italic=false,center=true){
+  return `<w:p><w:pPr>${center?'<w:jc w:val="center"/>':''}</w:pPr><w:r><w:rPr>${bold?'<w:b/>':''}${italic?'<w:i/>':''}<w:color w:val="${color}"/><w:sz w:val="${size}"/></w:rPr><w:t xml:space="preserve">${xesc(text)}</w:t></w:r></w:p>`;
+}
+
+async function exportDocx(){
+  if(!window.JSZip){ toast("JSZip failed to load — check connection"); return; }
+  toast("Building Word file…");
+  let rows = `<w:tr><w:trPr><w:tblHeader/></w:trPr>` +
+    HEADS.map((h,i)=>docxHeaderCell(h,COLW[i])).join("") + `</w:tr>`;
+  entries.forEach((e,idx)=>{
+    const shade = idx%2===0?"FFFFFF":"EEF4FA";
+    const cells = [String(idx+1), e.date, e.name, e.rn, e.diagnosis, e.procedure, e.oap];
+    rows += `<w:tr>` + cells.map((c,i)=>docxDataCell(c,COLW[i],shade)).join("") + `</w:tr>`;
+  });
+  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+${titleP("MINISTRY OF HEALTH MALAYSIA",24,true)}
+${titleP("LOG BOOK — ORTHOPAEDIC",24,true)}
+${titleP("DR LING XIU WEN    |    880327355507",20,true)}
+${titleP("DEPARTMENT OF ORTHOPAEDIC SURGERY, UNIVERSITY MALAYA MEDICAL CENTRE",18,false)}
+${titleP("Note: Entries from March–August 2025 (Chinese names) are from a Taiwan rotation logbook (National Cheng Kung University Hospital). All other entries are from PPUM (University Malaya Medical Centre).",16,false,"555555",true,false)}
+<w:p/>
+<w:tbl><w:tblPr><w:tblW w:w="${COLW.reduce((a,b)=>a+b,0)}" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="AAAAAA"/><w:left w:val="single" w:sz="4" w:color="AAAAAA"/><w:bottom w:val="single" w:sz="4" w:color="AAAAAA"/><w:right w:val="single" w:sz="4" w:color="AAAAAA"/><w:insideH w:val="single" w:sz="4" w:color="AAAAAA"/><w:insideV w:val="single" w:sz="4" w:color="AAAAAA"/></w:tblBorders></w:tblPr>
+<w:tblGrid>${COLW.map(w=>`<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>
+${rows}</w:tbl>
+<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/></w:sectPr>
+</w:body></w:document>`;
+
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
+  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
+  zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+  zip.file("word/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="PingFang TC"/><w:sz w:val="14"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0"/></w:pPr></w:pPrDefault></w:docDefaults></w:styles>`);
+  zip.file("word/document.xml", doc);
+
+  const blob = await zip.generateAsync({type:"blob",
+    mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+  downloadBlob(blob, "Onco_Logbook_MASTER_UPDATED.docx");
+}
+
+/* ================= EXPORT: PDF ================= */
+function exportPdf(){
+  if(!window.jspdf){ toast("jsPDF failed to load — check connection"); return; }
+  toast("Building PDF… (large file, please wait)");
+  setTimeout(()=>{
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({orientation:"landscape", unit:"pt", format:"a4"});
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 28, contentW = pageW - margin*2;
+    const totalW = COLW.reduce((a,b)=>a+b,0);
+    const widths = COLW.map(w=>w/totalW*contentW);
+
+    let y = margin;
+    doc.setFont("helvetica","bold"); doc.setFontSize(12);
+    doc.text("MINISTRY OF HEALTH MALAYSIA", pageW/2, y, {align:"center"}); y+=16;
+    doc.text("LOG BOOK — ORTHOPAEDIC", pageW/2, y, {align:"center"}); y+=15;
+    doc.setFontSize(10);
+    doc.text("DR LING XIU WEN    |    880327355507", pageW/2, y, {align:"center"}); y+=13;
+    doc.setFont("helvetica","normal"); doc.setFontSize(9);
+    doc.text("DEPARTMENT OF ORTHOPAEDIC SURGERY, UNIVERSITY MALAYA MEDICAL CENTRE", pageW/2, y, {align:"center"}); y+=13;
+    doc.setFont("helvetica","italic"); doc.setFontSize(7.5); doc.setTextColor(90);
+    doc.text("Note: Entries from March–August 2025 (Chinese names) are from a Taiwan rotation logbook (NCKUH). All other entries are from PPUM.", margin, y); y+=12;
+    doc.setTextColor(0);
+
+    const body = entries.map((e,i)=>[String(i+1), e.date, e.name, e.rn, e.diagnosis, e.procedure, e.oap]);
+    doc.autoTable({
+      startY: y, margin: {left: margin, right: margin},
+      head: [HEADS], body,
+      styles: {fontSize: 6.8, cellPadding: 2.5, lineColor: [170,170,170], lineWidth: .4, textColor: 0, valign:"middle"},
+      headStyles: {fillColor: [31,78,121], textColor: 255, fontStyle: "bold", halign: "center", fontSize: 7.5},
+      alternateRowStyles: {fillColor: [238,244,250]},
+      columnStyles: Object.fromEntries(widths.map((w,i)=>[i,{cellWidth:w}])),
+    });
+    doc.save("Onco_Logbook_MASTER_UPDATED.pdf");
+  }, 60);
+}
+
+/* ================= BACKUP / IMPORT ================= */
+function exportBackup(){
+  const blob = new Blob([JSON.stringify(entries, null, 1)], {type:"application/json"});
+  downloadBlob(blob, "OrthoLogbook_backup.json");
+}
+async function importBackup(input){
+  const file = input.files && input.files[0]; input.value = "";
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const arr = JSON.parse(text);
+    if(!Array.isArray(arr)) throw new Error("Not a logbook backup");
+    const existing = new Set(entries.map(dkey));
+    let added=0;
+    for(const e of arr){
+      if(!e || !e.rn || !e.date) continue;
+      const key = (e.rn||"").toLowerCase().trim() + "|" + (e.date||"").trim();
+      if(existing.has(key)) continue;
+      existing.add(key);
+      entries.push({date:e.date, name:e.name||"", rn:e.rn,
+        diagnosis:e.diagnosis||"", procedure:e.procedure||"", oap:e.oap||""});
+      added++;
+    }
+    sortEntries(); await persist(); renderList();
+    toast(`Imported ${added} new entr${added===1?"y":"ies"} (duplicates skipped)`);
+  }catch(err){ toast("Import failed: " + err.message, 4000); }
+}
+function downloadBlob(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 800);
+}
+
+function renderExportInfo(){
+  $("exportInfo").innerHTML = `<b>${entries.length}</b> entries · ${entries[0]?entries[0].date:"—"} → ${entries[entries.length-1]?entries[entries.length-1].date:"—"}`;
+}
+
+async function saveKey(){
+  const v = $("apiKeyInput").value.trim();
+  const ok = await store.set("api-key", v);
+  toast(ok ? (v ? "API key saved" : "API key cleared") : "Saved for this session only");
+}
+
+async function resetAll(){
+  const msg = SEED.length
+    ? "Reset the logbook to the original " + SEED.length + " preloaded entries? Everything you added will be removed."
+    : "Erase ALL entries? Download a backup first if you want to keep them.";
+  if(!confirm(msg)) return;
+  entries = SEED.map(s => ({date:s.date, name:s.name, rn:s.rn,
+    diagnosis:s.diagnosis, procedure:s.procedure, oap:s.oap}));
+  sortEntries(); await persist(); renderList(); showTab("logbook");
+  toast(SEED.length ? "Logbook reset" : "All entries erased");
+}
+
+boot();
+</script>
+</body>
+</html>
